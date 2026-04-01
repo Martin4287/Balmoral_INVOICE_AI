@@ -182,9 +182,6 @@ export default function App() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize Gemini
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -248,9 +245,15 @@ export default function App() {
   const handleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Login Error:", err);
-      setError("Error al iniciar sesión.");
+      if (err.code === 'auth/popup-blocked') {
+        setError("El navegador bloqueó la ventana emergente. Por favor, habilita las ventanas emergentes para este sitio.");
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError("Este dominio no está autorizado en Firebase. Por favor, añade '" + window.location.hostname + "' a los dominios autorizados en la consola de Firebase.");
+      } else {
+        setError("Error al iniciar sesión: " + (err.message || "Inténtalo de nuevo."));
+      }
     }
   };
 
@@ -292,9 +295,15 @@ export default function App() {
     setError(null);
 
     try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("La clave de API de Gemini no está configurada. Por favor, asegúrate de que esté configurada en el entorno.");
+      }
+
+      const aiInstance = new GoogleGenAI({ apiKey });
       const base64Data = await fileToBase64(selectedFile);
       
-      const response = await ai.models.generateContent({
+      const response = await aiInstance.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: [
           {
@@ -335,16 +344,41 @@ export default function App() {
         }
       });
 
-      const extractedData = JSON.parse(response.text || '{}');
+      let text = response.text || '{}';
+      // Remove potential markdown code blocks if they exist
+      if (text.startsWith('```json')) {
+        text = text.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+      } else if (text.startsWith('```')) {
+        text = text.replace(/^```\n?/, '').replace(/\n?```$/, '');
+      }
+
+      const extractedData = JSON.parse(text);
+
+      // Sanitize data for Firestore
+      const sanitizedData = {
+        vendorName: String(extractedData.vendorName || 'S/N').substring(0, 199),
+        issueDate: String(extractedData.issueDate || ''),
+        invoiceNumber: String(extractedData.invoiceNumber || ''),
+        lineItems: Array.isArray(extractedData.lineItems) ? extractedData.lineItems.map((item: any) => ({
+          description: String(item.description || ''),
+          quantity: Number(item.quantity) || 0,
+          unit: String(item.unit || ''),
+          price: Number(item.price) || 0,
+          total: Number(item.total) || 0
+        })) : [],
+        subtotal: Number(extractedData.subtotal) || 0,
+        tax: Number(extractedData.tax) || 0,
+        total: Number(extractedData.total) || 0,
+        currency: String(extractedData.currency || 'ARS').toUpperCase(),
+        notes: String(extractedData.notes || '').substring(0, 1000),
+        ownerId: user.uid,
+        status: 'processed' as const,
+        createdAt: serverTimestamp()
+      };
 
       // Save to Firestore
       try {
-        await addDoc(collection(db, 'invoices'), {
-          ...extractedData,
-          ownerId: user.uid,
-          status: 'processed',
-          createdAt: serverTimestamp()
-        });
+        await addDoc(collection(db, 'invoices'), sanitizedData);
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, 'invoices');
       }
@@ -354,9 +388,9 @@ export default function App() {
       setPreviewUrl(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       
-    } catch (err) {
+    } catch (err: any) {
       console.error("Processing Error:", err);
-      setError("Error al procesar la factura con IA. Inténtalo de nuevo.");
+      setError("Error al procesar la factura: " + (err.message || "Inténtalo de nuevo."));
     } finally {
       setIsProcessing(false);
     }
