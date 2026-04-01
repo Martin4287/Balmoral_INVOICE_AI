@@ -311,9 +311,20 @@ export default function App() {
     setError(null);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || apiKey.trim() === "") {
-        throw new Error("La clave de API de Gemini no está configurada. Por favor, asegúrate de que esté configurada en el entorno (GEMINI_API_KEY o VITE_GEMINI_API_KEY).");
+      // Try to get the API key from multiple sources
+      // 1. process.env.GEMINI_API_KEY (injected by Vite define)
+      // 2. import.meta.env.VITE_GEMINI_API_KEY (standard Vite env var)
+      // 3. GEMINI_API_KEY2 or VITE_GEMINI_API_KEY2 (fallbacks)
+      const apiKey = 
+        process.env.GEMINI_API_KEY || 
+        (import.meta as any).env?.VITE_GEMINI_API_KEY || 
+        (process.env as any).VITE_GEMINI_API_KEY ||
+        (process.env as any).GEMINI_API_KEY2 ||
+        (import.meta as any).env?.VITE_GEMINI_API_KEY2 ||
+        (process.env as any).VITE_GEMINI_API_KEY2;
+      
+      if (!apiKey || apiKey.trim() === "" || apiKey === "undefined" || apiKey.includes("Free Tier")) {
+        throw new Error("La clave de API de Gemini no está configurada correctamente. Por favor, ve al menú de 'Settings' (engranaje) en AI Studio y agrega un nuevo Secret llamado 'GEMINI_API_KEY2' con tu clave de API.");
       }
 
       const aiInstance = new GoogleGenAI({ apiKey });
