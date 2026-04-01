@@ -19,7 +19,8 @@ import {
   User,
   handleFirestoreError,
   OperationType,
-  deleteDoc
+  deleteDoc,
+  firebaseConfig
 } from './firebase';
 import { 
   FileText, 
@@ -170,6 +171,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState<InvoiceData[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -243,6 +245,8 @@ export default function App() {
 
   // --- Handlers ---
   const handleLogin = async () => {
+    setIsLoggingIn(true);
+    setError(null);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
@@ -250,10 +254,22 @@ export default function App() {
       if (err.code === 'auth/popup-blocked') {
         setError("El navegador bloqueó la ventana emergente. Por favor, habilita las ventanas emergentes para este sitio.");
       } else if (err.code === 'auth/unauthorized-domain') {
-        setError("Este dominio no está autorizado en Firebase. Por favor, añade '" + window.location.hostname + "' a los dominios autorizados en la consola de Firebase.");
+        const domain = window.location.hostname;
+        const projectId = firebaseConfig.projectId;
+        setError(
+          <span>
+            Este dominio (<strong>{domain}</strong>) no está autorizado en Firebase. 
+            Por favor, añádelo en la <a href={`https://console.firebase.google.com/project/${projectId}/authentication/providers`} target="_blank" rel="noopener noreferrer" className="underline font-bold">Consola de Firebase</a> 
+            dentro de la sección "Dominios autorizados" en la pestaña "Configuración".
+          </span>
+        );
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError("La ventana de inicio de sesión se cerró antes de completar el proceso.");
       } else {
         setError("Error al iniciar sesión: " + (err.message || "Inténtalo de nuevo."));
       }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -296,8 +312,8 @@ export default function App() {
 
     try {
       const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("La clave de API de Gemini no está configurada. Por favor, asegúrate de que esté configurada en el entorno.");
+      if (!apiKey || apiKey.trim() === "") {
+        throw new Error("La clave de API de Gemini no está configurada. Por favor, asegúrate de que esté configurada en el entorno (GEMINI_API_KEY o VITE_GEMINI_API_KEY).");
       }
 
       const aiInstance = new GoogleGenAI({ apiKey });
@@ -517,12 +533,25 @@ export default function App() {
           <p className="text-gray-600 mb-10 text-lg">
             Sube tus facturas y deja que nuestra IA extraiga los datos automáticamente. Inicia sesión para comenzar.
           </p>
+          
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-red-700 text-left">
+              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <p className="text-sm font-medium">{error}</p>
+            </div>
+          )}
+
           <button
             onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 text-gray-700 font-semibold py-4 px-6 rounded-2xl hover:bg-gray-50 transition-all active:scale-95 text-lg"
+            disabled={isLoggingIn}
+            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 text-gray-700 font-semibold py-4 px-6 rounded-2xl hover:bg-gray-50 transition-all active:scale-95 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
-            Continuar con Google
+            {isLoggingIn ? (
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            ) : (
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
+            )}
+            {isLoggingIn ? "Iniciando sesión..." : "Continuar con Google"}
           </button>
         </motion.div>
       </div>
@@ -694,7 +723,7 @@ export default function App() {
                             contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '12px 16px'}}
                             itemStyle={{fontWeight: 800, color: '#111827'}}
                             labelStyle={{color: '#6b7280', marginBottom: '4px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em'}}
-                            formatter={(value: number) => [formatCurrency(value, 'EUR'), 'Gasto']}
+                            formatter={(value: number) => [formatCurrency(value, 'ARS'), 'Gasto']}
                           />
                           <Area type="monotone" dataKey="total" stroke="#2563eb" strokeWidth={4} fillOpacity={1} fill="url(#colorTotal)" />
                         </AreaChart>
@@ -1047,7 +1076,7 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-4 mb-10">
                       <div className="bg-gray-50 p-4 rounded-3xl border border-gray-100">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Gastado</p>
-                        <p className="text-lg font-black text-gray-900">{formatCurrency(stats.totalSpent, 'EUR')}</p>
+                        <p className="text-lg font-black text-gray-900">{formatCurrency(stats.totalSpent, 'ARS')}</p>
                       </div>
                       <div className="bg-gray-50 p-4 rounded-3xl border border-gray-100">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Documentos</p>
