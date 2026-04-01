@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique identifier for the user" },
+        "displayName": { "type": "string", "description": "User's display name" },
+        "email": { "type": "string", "format": "email", "description": "User's email address" },
+        "photoURL": { "type": "string", "description": "URL to the user's profile photo" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user profile was created" }
+      },
+      "required": ["uid", "email"]
+    },
+    "LineItem": {
+      "title": "LineItem",
+      "description": "A single item in an invoice",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "price": { "type": "number" },
+        "total": { "type": "number" }
+      },
+      "required": ["description", "quantity", "price", "total"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Extracted invoice data",
+      "type": "object",
+      "properties": {
+        "vendorName": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "lineItems": {
+          "type": "array",
+          "items": { "$ref": "LineItem" }
+        },
+        "subtotal": { "type": "number" },
+        "tax": { "type": "number" },
+        "total": { "type": "number" },
+        "currency": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "processed", "error"] },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["vendorName", "total", "ownerId", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Collection of invoices"
+    }
+  }
+}

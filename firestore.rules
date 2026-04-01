@@ -1,0 +1,132 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - uid: string (required) - Unique identifier for the user
+//   - displayName: string (optional) - User's display name
+//   - email: string (required, email format) - User's email address
+//   - photoURL: string (optional) - URL to the user's profile photo
+//   - createdAt: timestamp (required) - When the user profile was created
+//
+// Collection: invoices
+// Document ID: {invoiceId}
+// Fields:
+//   - vendorName: string (required) - Name of the vendor
+//   - issueDate: string (optional) - Date the invoice was issued
+//   - invoiceNumber: string (optional) - Number of the invoice
+//   - lineItems: list (optional) - List of line items
+//   - subtotal: number (optional) - Subtotal amount
+//   - tax: number (optional) - Tax amount
+//   - total: number (required) - Total amount
+//   - currency: string (optional) - Currency code
+//   - notes: string (optional) - Additional notes
+//   - status: string (required, enum: ['pending', 'processed', 'error']) - Status of the invoice
+//   - ownerId: string (required) - UID of the user who owns the invoice
+//   - createdAt: timestamp (required) - When the invoice was created
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        ((request.auth.token.email == "martindarioschupp@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email']) &&
+             hasOnlyAllowedFields(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'role']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             (!('role' in data) || data.role in ['user', 'admin']) &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function isValidInvoice(data) {
+      return hasRequiredFields(['vendorName', 'total', 'ownerId', 'status', 'createdAt']) &&
+             hasOnlyAllowedFields(['vendorName', 'issueDate', 'invoiceNumber', 'lineItems', 'subtotal', 'tax', 'total', 'currency', 'notes', 'status', 'ownerId', 'createdAt']) &&
+             data.vendorName is string && data.vendorName.size() > 0 && data.vendorName.size() < 200 &&
+             data.total is number &&
+             data.ownerId == request.auth.uid &&
+             data.status in ['pending', 'processed', 'error'] &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can only read their own profile (PII protection)
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create/update their own profile
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      (!('role' in resource.data) || !('role' in request.resource.data) || request.resource.data.role == resource.data.role); // Role is immutable for non-admins
+      
+      // Admin can update roles
+      allow update: if isAdmin() && isValidUser(request.resource.data);
+    }
+
+    match /invoices/{invoiceId} {
+      // Users can only read their own invoices
+      allow read: if isDocOwner() || isAdmin();
+      
+      // Users can create invoices for themselves
+      allow create: if isAuthenticated() && isValidInvoice(request.resource.data);
+      
+      // Users can update their own invoices
+      allow update: if isDocOwner() && isValidInvoice(request.resource.data) &&
+                      request.resource.data.ownerId == resource.data.ownerId &&
+                      request.resource.data.createdAt == resource.data.createdAt;
+      
+      // Users can delete their own invoices
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

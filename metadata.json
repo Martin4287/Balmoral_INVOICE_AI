@@ -1,0 +1,5 @@
+{
+  "name": "Gestor de Facturas IA",
+  "description": "Una aplicación para subir facturas, extraer datos automáticamente con IA y realizar un seguimiento con tu cuenta de Google.",
+  "requestFramePermissions": []
+}
